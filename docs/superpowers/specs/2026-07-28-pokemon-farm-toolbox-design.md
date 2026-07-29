@@ -21,8 +21,9 @@ farm-toolbox/
   profiles/
     <profile-name>/
       game/                 # Per-profile ROM copy
-      save/                 # Per-profile working save
-      backups/              # Timestamped save snapshots
+      bot-profile/          # Per-profile PokeBot Gen3 profile and current_state.ss1
+      save/                 # Per-profile Gen 2 working save
+      backups/              # Timestamped save/state snapshots
       logs/                 # Bot and launcher logs
       profile.json          # Game, bot, paths, mode, and safety configuration
   tools/
@@ -36,10 +37,10 @@ The existing `Pokemon Roms/` directory is user data. It will not be moved, edite
 
 ## Profile Lifecycle
 
-1. Create a profile from one supported game file and an optional existing save.
+1. Create a profile from one supported game file. A Gen 3 profile is provisioned once through PokeBot's native profile screen; an existing mGBA save state can be imported there if needed.
 2. Validate the file extension, known game family, profile paths, and free disk space.
-3. Copy the game file and save into the profile; never open the source file for write access.
-4. Make a timestamped backup of the working save before each bot run.
+3. Copy the game file and keep all mutable state in the profile; never open the source file for write access.
+4. Make a timestamped backup of the working Gen 2 save or Gen 3 PokeBot `current_state.ss1` before each bot run.
 5. Launch the appropriate bot against the profile copy with the selected mode.
 6. Record the launch configuration and return a clear recovery command that restores the latest or a named backup.
 
@@ -55,8 +56,8 @@ The launcher will expose only modes the underlying bot declares available for th
 ## Data Safety and Recovery
 
 - Source games and source saves are never modified.
-- No profile shares a save or bot state with another profile.
-- Backups are copied before every automated session and retained until explicitly removed by the user.
+- No profile shares a save, PokeBot profile, or bot state with another profile.
+- Backups are copied before every automated session and retained until explicitly removed by the user. For Gen 3, the recoverable state is PokeBot's native `current_state.ss1`.
 - A failed preflight or bot exit leaves the working save in place and reports its path; it does not attempt destructive cleanup.
 - The user can manually inspect, pause, or stop a bot at any time.
 
@@ -68,7 +69,7 @@ The implementation will verify:
 2. A pre-run backup is created before the bot process launches.
 3. The Gen 3 tool recognizes a selected supported profile.
 4. The Gen 2 emulator and bot open a selected supported profile without using the source game location.
-5. Restoring a profile backup replaces only that profile's working save.
+5. Restoring a profile backup replaces only that profile's working save or Gen 3 state.
 
 ## Out of Scope
 
