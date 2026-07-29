@@ -47,8 +47,8 @@ def new_manifest(
         raise ValueError(f"{game_id} is not supported by the Gen 3 launcher")
 
     typed_game_id: GameId = game_id
-    source_path = Path(source_path)
-    profile_root = Path(profile_root)
+    source_path = Path(source_path).resolve()
+    profile_root = Path(profile_root).resolve()
     bot_profile_dir = profile_root / "bot-profile"
     return ProfileManifest(
         profile_name=profile_name,

@@ -65,6 +65,21 @@ def test_create_profile_writes_relative_forward_slash_manifest(tmp_path: Path) -
     assert load_manifest(created.profile_root / "profile.json") == created
 
 
+def test_load_manifest_round_trips_relative_input_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Relative source and root inputs produce a manifest that reloads identically."""
+    monkeypatch.chdir(tmp_path)
+    source_rom = Path("roms/emerald.gba")
+    source_rom.parent.mkdir()
+    source_rom.write_bytes(b"source-rom")
+    manifest = new_manifest("emerald", "emerald", source_rom, Path("profiles/emerald"))
+
+    created = create_profile(manifest)
+
+    assert load_manifest(created.profile_root / "profile.json") == created
+
+
 def test_create_profile_rejects_an_existing_profile_root(tmp_path: Path) -> None:
     """An existing root cannot be silently overwritten by a second creation."""
     source_rom = tmp_path / "emerald.gba"
