@@ -89,6 +89,23 @@ def _validate_manifest_source(manifest: ProfileManifest) -> None:
         raise RuntimeError("source ROM hash mismatch; refusing to stage it")
 
 
+def _validated_working_rom(manifest: ProfileManifest) -> Path:
+    """Return the intact, profile-owned ROM copy used for every stage."""
+    working_rom = manifest.working_rom
+    if _is_redirect(working_rom):
+        raise ValueError("working ROM cannot be a symlink")
+    resolved = working_rom.resolve()
+    if not resolved.is_relative_to(manifest.profile_root.resolve()):
+        raise ValueError("working ROM must remain within the selected profile")
+    if not resolved.is_file():
+        raise FileNotFoundError(f"working ROM is absent: {working_rom}")
+    if manifest.source_path.exists() and resolved.samefile(manifest.source_path):
+        raise ValueError("working ROM must be a profile-owned copy of the source ROM")
+    if sha256_file(resolved) != manifest.source_sha256:
+        raise RuntimeError("working ROM hash mismatch; refusing to stage it")
+    return resolved
+
+
 def _upstream_profiles_dir(tool_root: Path) -> Path:
     """Return the validated upstream profiles directory."""
     root = Path(tool_root).resolve()
@@ -151,8 +168,9 @@ def stage_gen3_rom(manifest: ProfileManifest, tool_root: Path) -> Path:
     """Verify and atomically stage a uniquely named ROM copy for PokeBot."""
     _, roms_dir = _validate_tool_install(tool_root)
     _validate_manifest_source(manifest)
+    working_rom = _validated_working_rom(manifest)
 
-    staged_rom = roms_dir / f"{manifest.profile_name}{manifest.source_path.suffix}"
+    staged_rom = roms_dir / f"{manifest.profile_name}{working_rom.suffix}"
     if _is_redirect(staged_rom):
         raise ValueError("staged ROM destination cannot be a symlink")
     if not staged_rom.resolve().is_relative_to(roms_dir):
@@ -164,12 +182,13 @@ def stage_gen3_rom(manifest: ProfileManifest, tool_root: Path) -> Path:
     os.close(file_descriptor)
     temporary_path = Path(temporary_name)
     try:
-        shutil.copy2(manifest.source_path, temporary_path)
+        shutil.copy2(working_rom, temporary_path)
         if (
             sha256_file(manifest.source_path) != manifest.source_sha256
+            or sha256_file(working_rom) != manifest.source_sha256
             or sha256_file(temporary_path) != manifest.source_sha256
         ):
-            raise RuntimeError("source ROM changed while it was being staged")
+            raise RuntimeError("source or working ROM changed while it was being staged")
         os.replace(temporary_path, staged_rom)
     finally:
         temporary_path.unlink(missing_ok=True)
@@ -189,9 +208,26 @@ def preflight_gen3(manifest: ProfileManifest, tool_root: Path) -> None:
     _required_file(manifest.runtime_state, "bot profile current_state.ss1")
 
 
+def _refuse_unsynced_upstream_state(
+    manifest: ProfileManifest, tool_root: Path
+) -> None:
+    """Protect recoverable state left upstream by a prior failed run."""
+    upstream_profile = _upstream_profile(manifest, tool_root)
+    upstream_state = upstream_profile / "current_state.ss1"
+    if not upstream_state.exists() and not _is_redirect(upstream_state):
+        return
+    _required_file(upstream_state, "upstream profile current_state.ss1")
+    if sha256_file(upstream_state) != sha256_file(manifest.runtime_state):
+        raise RuntimeError(
+            "upstream profile state differs from the local profile; "
+            f"recover or run sync-gen3 for {upstream_profile} before staging"
+        )
+
+
 def stage_gen3_profile(manifest: ProfileManifest, tool_root: Path) -> Path:
     """Back up and copy a provisioned local profile into PokeBot."""
     preflight_gen3(manifest, tool_root)
+    _refuse_unsynced_upstream_state(manifest, tool_root)
     staged_rom = stage_gen3_rom(manifest, tool_root)
     backup_runtime_state(
         manifest,

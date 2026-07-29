@@ -59,6 +59,27 @@ def test_stage_gen3_profile_uses_a_profile_copy(
     assert backups[0].read_bytes() == b"state"
 
 
+def test_stage_gen3_profile_refuses_to_overwrite_unsynced_upstream_state(
+    created_manifest, tmp_path: Path
+) -> None:
+    """A failed run's divergent upstream state must be recovered before restaging."""
+    _provision_local_profile(created_manifest)
+    tool_root = _make_tool_root(tmp_path)
+    upstream_profile = tool_root / "profiles" / created_manifest.profile_name
+    upstream_profile.mkdir()
+    (upstream_profile / "metadata.yml").write_text("version: 1\n", encoding="utf-8")
+    upstream_state = upstream_profile / "current_state.ss1"
+    upstream_state.write_bytes(b"recoverable-unsynced-state")
+
+    with pytest.raises(RuntimeError, match="sync-gen3") as error:
+        stage_gen3_profile(created_manifest, tool_root)
+
+    assert str(upstream_profile) in str(error.value)
+    assert upstream_state.read_bytes() == b"recoverable-unsynced-state"
+    assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
+    assert list(created_manifest.backups_dir.iterdir()) == []
+
+
 def test_stage_gen3_rom_requires_the_validated_upstream_layout(
     created_manifest, tmp_path: Path
 ) -> None:
@@ -132,6 +153,69 @@ def test_stage_gen3_rom_rejects_a_changed_source(
         stage_gen3_rom(created_manifest, tool_root)
 
     assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
+
+
+def test_stage_gen3_rom_rejects_a_missing_working_rom(
+    created_manifest, tmp_path: Path
+) -> None:
+    """Staging cannot fall back to the source when the profile copy is absent."""
+    tool_root = _make_tool_root(tmp_path)
+    created_manifest.working_rom.unlink()
+
+    with pytest.raises(FileNotFoundError, match="working ROM"):
+        stage_gen3_rom(created_manifest, tool_root)
+
+    assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
+
+
+def test_stage_gen3_rom_rejects_a_tampered_working_rom(
+    created_manifest, tmp_path: Path
+) -> None:
+    """Staging refuses a profile copy whose content differs from its source."""
+    tool_root = _make_tool_root(tmp_path)
+    created_manifest.working_rom.write_bytes(b"tampered")
+
+    with pytest.raises(RuntimeError, match="working ROM hash mismatch"):
+        stage_gen3_rom(created_manifest, tool_root)
+
+    assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
+
+
+def test_stage_gen3_rom_rejects_a_working_rom_outside_the_profile(
+    created_manifest, tmp_path: Path
+) -> None:
+    """A crafted manifest cannot stage an external file as its working copy."""
+    tool_root = _make_tool_root(tmp_path)
+    outside_rom = tmp_path / "outside.gba"
+    outside_rom.write_bytes(b"source-rom")
+    unsafe_manifest = replace(created_manifest, working_rom=outside_rom)
+
+    with pytest.raises(ValueError, match="working ROM"):
+        stage_gen3_rom(unsafe_manifest, tool_root)
+
+    assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
+
+
+def test_stage_gen3_rom_copies_only_the_profile_working_rom(
+    created_manifest, tmp_path: Path
+) -> None:
+    """The staged file comes from the validated profile copy, not the source."""
+    tool_root = _make_tool_root(tmp_path)
+    source_mtime_ns = 1_700_000_000_000_000_000
+    working_mtime_ns = 1_710_000_000_000_000_000
+    os.utime(
+        created_manifest.source_path,
+        ns=(source_mtime_ns, source_mtime_ns),
+    )
+    os.utime(
+        created_manifest.working_rom,
+        ns=(working_mtime_ns, working_mtime_ns),
+    )
+
+    staged_rom = stage_gen3_rom(created_manifest, tool_root)
+
+    assert staged_rom.stat().st_mtime_ns == working_mtime_ns
+    assert staged_rom.stat().st_mtime_ns != source_mtime_ns
 
 
 def test_stage_gen3_rom_rejects_a_profile_name_that_escapes_roms(

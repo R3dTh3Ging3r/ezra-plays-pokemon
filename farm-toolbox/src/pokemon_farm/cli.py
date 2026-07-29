@@ -111,15 +111,41 @@ def _provision_gen3(args: argparse.Namespace) -> int:
         cwd=tool_root,
     )
     upstream_profile = tool_root / "profiles" / manifest.profile_name
-    if upstream_profile.is_dir():
-        sync_gen3_profile(manifest, tool_root)
-        print(f"profile synchronized: {manifest.bot_profile_dir}")
-    else:
+    if result.returncode != 0:
         print(
-            "manual PokeBot profile creation is still required at: "
-            f"{upstream_profile}"
+            "PokeBot provisioning exited nonzero; upstream profile retained at: "
+            f"{upstream_profile}",
+            file=sys.stderr,
         )
-    return result.returncode
+        return result.returncode
+
+    required_artifacts = (
+        upstream_profile / "metadata.yml",
+        upstream_profile / "current_state.ss1",
+    )
+    profile_is_valid = (
+        upstream_profile.is_dir()
+        and not upstream_profile.is_symlink()
+        and not upstream_profile.is_junction()
+        and all(
+            artifact.is_file()
+            and not artifact.is_symlink()
+            and not artifact.is_junction()
+            for artifact in required_artifacts
+        )
+    )
+    if not profile_is_valid:
+        print(
+            "PokeBot provisioning did not create a valid named profile with "
+            "metadata.yml and current_state.ss1; upstream profile retained at: "
+            f"{upstream_profile}",
+            file=sys.stderr,
+        )
+        return 2
+
+    sync_gen3_profile(manifest, tool_root)
+    print(f"profile synchronized: {manifest.bot_profile_dir}")
+    return 0
 
 
 def _sync_gen3(args: argparse.Namespace) -> int:

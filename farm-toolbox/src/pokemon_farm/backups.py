@@ -22,19 +22,21 @@ def _validate_label(label: str) -> None:
         raise ValueError("backup label must be one safe filename component")
 
 
-def _validate_runtime_destination(manifest: ProfileManifest) -> Path:
-    """Return a profile-owned runtime path that cannot redirect a restore."""
+def _validate_runtime_state(manifest: ProfileManifest) -> Path:
+    """Return profile-owned runtime state that cannot alias the source ROM."""
     runtime_state = manifest.runtime_state
     if runtime_state.is_symlink():
         raise ValueError("runtime state destination cannot be a symlink")
-
-    resolved_runtime_state = runtime_state.resolve()
-    if not resolved_runtime_state.is_relative_to(manifest.profile_root.resolve()):
-        raise ValueError("runtime state destination must remain within the profile")
     if runtime_state.exists() and manifest.source_path.exists() and runtime_state.samefile(
         manifest.source_path
     ):
         raise ValueError("runtime state destination cannot be the source ROM")
+    if runtime_state.exists() and runtime_state.stat().st_nlink > 1:
+        raise ValueError("runtime state destination cannot be a hardlink")
+
+    resolved_runtime_state = runtime_state.resolve()
+    if not resolved_runtime_state.is_relative_to(manifest.profile_root.resolve()):
+        raise ValueError("runtime state destination must remain within the profile")
     return resolved_runtime_state
 
 
@@ -44,7 +46,8 @@ def backup_runtime_state(
     label: str = "before-run",
 ) -> Path:
     """Copy the existing runtime state into this profile's backup directory."""
-    if not manifest.runtime_state.is_file():
+    runtime_state = _validate_runtime_state(manifest)
+    if not runtime_state.is_file():
         raise FileNotFoundError(f"runtime state is absent: {manifest.runtime_state}")
     _validate_label(label)
 
@@ -56,7 +59,7 @@ def backup_runtime_state(
     if not backup.is_relative_to(backups_dir):
         raise ValueError("backup destination must be inside the profile backups directory")
     backup.touch(exist_ok=False)
-    shutil.copy2(manifest.runtime_state, backup)
+    shutil.copy2(runtime_state, backup)
     return backup
 
 
@@ -69,4 +72,4 @@ def restore_backup(manifest: ProfileManifest, backup: Path) -> None:
     if not backup.is_file():
         raise FileNotFoundError(f"backup file is absent: {backup}")
 
-    shutil.copy2(backup, _validate_runtime_destination(manifest))
+    shutil.copy2(backup, _validate_runtime_state(manifest))

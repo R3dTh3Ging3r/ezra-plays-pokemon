@@ -231,6 +231,80 @@ def test_provision_gen3_stages_then_syncs_a_created_upstream_profile(
     assert "profile synchronized" in capsys.readouterr().out
 
 
+def test_provision_gen3_nonzero_exit_retains_upstream_state_without_importing(
+    created_manifest, tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A failed provisioning process cannot import even a complete profile."""
+    tool_root = _make_tool_root(tmp_path)
+    upstream = tool_root / "profiles" / created_manifest.profile_name
+    upstream.mkdir()
+    (upstream / "metadata.yml").write_text("version: 1\n", encoding="utf-8")
+    (upstream / "current_state.ss1").write_bytes(b"recoverable")
+
+    monkeypatch.setattr(
+        cli_module,
+        "_run_process",
+        lambda command, *, cwd: _ProcessResult(7),
+    )
+
+    exit_code = main(
+        [
+            "provision-gen3",
+            "--profile",
+            str(created_manifest.profile_root / "profile.json"),
+            "--tool-root",
+            str(tool_root),
+        ]
+    )
+
+    assert exit_code == 7
+    assert not created_manifest.runtime_state.exists()
+    assert (upstream / "current_state.ss1").read_bytes() == b"recoverable"
+    assert str(upstream) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("created_artifact", ["metadata.yml", "current_state.ss1"])
+def test_provision_gen3_requires_both_native_profile_artifacts_before_import(
+    created_manifest,
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    created_artifact: str,
+) -> None:
+    """A zero exit without a complete native profile remains recoverable upstream."""
+    tool_root = _make_tool_root(tmp_path)
+    upstream = tool_root / "profiles" / created_manifest.profile_name
+    upstream.mkdir()
+    artifact = upstream / created_artifact
+    if created_artifact == "metadata.yml":
+        artifact.write_text("version: 1\n", encoding="utf-8")
+    else:
+        artifact.write_bytes(b"incomplete")
+
+    def incomplete_runner(command: list[str], *, cwd: Path):
+        return _ProcessResult(0)
+
+    monkeypatch.setattr(cli_module, "_run_process", incomplete_runner)
+
+    exit_code = main(
+        [
+            "provision-gen3",
+            "--profile",
+            str(created_manifest.profile_root / "profile.json"),
+            "--tool-root",
+            str(tool_root),
+        ]
+    )
+
+    assert exit_code == 2
+    assert not created_manifest.runtime_state.exists()
+    assert (upstream / created_artifact).exists()
+    error = capsys.readouterr().err
+    assert str(upstream) in error
+    assert "metadata.yml" in error
+    assert "current_state.ss1" in error
+
+
 def test_sync_gen3_command_copies_the_named_upstream_profile(
     created_manifest, tmp_path: Path, capsys
 ) -> None:

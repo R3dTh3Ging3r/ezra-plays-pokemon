@@ -35,6 +35,71 @@ def test_backup_requires_an_existing_runtime_state(created_manifest) -> None:
         )
 
 
+def test_backup_rejects_a_runtime_state_outside_the_profile(
+    created_manifest, tmp_path: Path
+) -> None:
+    """A crafted manifest cannot back up an external file as profile state."""
+    outside_state = tmp_path / "outside.ss1"
+    outside_state.write_bytes(b"external")
+    unsafe_manifest = replace(created_manifest, runtime_state=outside_state)
+
+    with pytest.raises(ValueError, match="runtime state"):
+        backup_runtime_state(
+            unsafe_manifest, lambda: datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+        )
+
+    assert list(created_manifest.backups_dir.iterdir()) == []
+
+
+def test_backup_rejects_a_runtime_state_symlink_to_source(created_manifest) -> None:
+    """A redirected runtime path cannot copy the source ROM into save backups."""
+    try:
+        created_manifest.runtime_state.symlink_to(created_manifest.source_path)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="runtime state"):
+        backup_runtime_state(
+            created_manifest, lambda: datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+        )
+
+    assert list(created_manifest.backups_dir.iterdir()) == []
+
+
+def test_backup_rejects_a_runtime_state_hardlink_to_source(created_manifest) -> None:
+    """A hardlinked runtime path cannot copy the source ROM into save backups."""
+    try:
+        os.link(created_manifest.source_path, created_manifest.runtime_state)
+    except OSError as error:
+        pytest.skip(f"hardlinks are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="runtime state"):
+        backup_runtime_state(
+            created_manifest, lambda: datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+        )
+
+    assert list(created_manifest.backups_dir.iterdir()) == []
+
+
+def test_backup_rejects_a_runtime_state_hardlink_to_an_external_file(
+    created_manifest, tmp_path: Path
+) -> None:
+    """A hardlink inside the profile cannot disguise arbitrary external data."""
+    outside_state = tmp_path / "outside.ss1"
+    outside_state.write_bytes(b"external")
+    try:
+        os.link(outside_state, created_manifest.runtime_state)
+    except OSError as error:
+        pytest.skip(f"hardlinks are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="runtime state"):
+        backup_runtime_state(
+            created_manifest, lambda: datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+        )
+
+    assert list(created_manifest.backups_dir.iterdir()) == []
+
+
 def test_restore_rejects_a_backup_outside_the_profile(created_manifest, tmp_path: Path) -> None:
     """A profile may restore only files from its own backup directory."""
     outside_backup = tmp_path / "outside.ss1"
