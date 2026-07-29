@@ -8,6 +8,36 @@ from typing import Callable
 from pokemon_farm.models import ProfileManifest
 
 
+def _validate_label(label: str) -> None:
+    """Reject labels that cannot safely form one backup filename component."""
+    if (
+        not label.strip()
+        or label in {".", ".."}
+        or "/" in label
+        or "\\" in label
+        or label.endswith((".", " "))
+        or any(character in label for character in '<>:"|?*')
+        or any(ord(character) < 32 for character in label)
+    ):
+        raise ValueError("backup label must be one safe filename component")
+
+
+def _validate_runtime_destination(manifest: ProfileManifest) -> Path:
+    """Return a profile-owned runtime path that cannot redirect a restore."""
+    runtime_state = manifest.runtime_state
+    if runtime_state.is_symlink():
+        raise ValueError("runtime state destination cannot be a symlink")
+
+    resolved_runtime_state = runtime_state.resolve()
+    if not resolved_runtime_state.is_relative_to(manifest.profile_root.resolve()):
+        raise ValueError("runtime state destination must remain within the profile")
+    if runtime_state.exists() and manifest.source_path.exists() and runtime_state.samefile(
+        manifest.source_path
+    ):
+        raise ValueError("runtime state destination cannot be the source ROM")
+    return resolved_runtime_state
+
+
 def backup_runtime_state(
     manifest: ProfileManifest,
     clock: Callable[[], datetime],
@@ -16,9 +46,14 @@ def backup_runtime_state(
     """Copy the existing runtime state into this profile's backup directory."""
     if not manifest.runtime_state.is_file():
         raise FileNotFoundError(f"runtime state is absent: {manifest.runtime_state}")
+    _validate_label(label)
 
     timestamp = clock().astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup = manifest.backups_dir / f"{timestamp}-{label}.ss1"
+    if not backup.resolve().is_relative_to(manifest.backups_dir.resolve()):
+        raise ValueError("backup destination must be inside the profile backups directory")
+    if backup.exists():
+        raise FileExistsError(f"backup already exists: {backup}")
     shutil.copy2(manifest.runtime_state, backup)
     return backup
 
@@ -32,4 +67,4 @@ def restore_backup(manifest: ProfileManifest, backup: Path) -> None:
     if not backup.is_file():
         raise FileNotFoundError(f"backup file is absent: {backup}")
 
-    shutil.copy2(backup, manifest.runtime_state)
+    shutil.copy2(backup, _validate_runtime_destination(manifest))
