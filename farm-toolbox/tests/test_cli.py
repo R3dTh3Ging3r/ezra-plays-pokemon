@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from pokemon_farm.cli import main
 from pokemon_farm.profiles import load_manifest
 
@@ -27,6 +29,64 @@ def test_create_command_makes_a_profile(tmp_path: Path, capsys) -> None:
 
     assert exit_code == 0
     assert "profiles\\emerald-level-grind" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "profile_name",
+    ["..", "../escaped", "nested/name", r"nested\name"],
+)
+def test_create_rejects_profile_names_that_can_escape_profiles_root(
+    tmp_path: Path, capsys, profile_name: str
+) -> None:
+    """Unsafe profile names cannot create directories outside profiles-root."""
+    rom = tmp_path / "fixture.gba"
+    rom.write_bytes(b"source-rom")
+    profiles_root = tmp_path / "profiles"
+
+    assert main(
+        [
+            "create",
+            "--name",
+            profile_name,
+            "--game",
+            "emerald",
+            "--rom",
+            str(rom),
+            "--profiles-root",
+            str(profiles_root),
+        ]
+    ) == 2
+
+    assert not profiles_root.exists()
+    assert "safe filename component" in capsys.readouterr().err
+
+
+def test_create_rejects_an_absolute_profile_name_before_creating_directories(
+    tmp_path: Path, capsys
+) -> None:
+    """An absolute name cannot replace the explicit profiles-root argument."""
+    rom = tmp_path / "fixture.gba"
+    rom.write_bytes(b"source-rom")
+    profiles_root = tmp_path / "profiles"
+    absolute_name = str(tmp_path / "outside-profile")
+
+    assert main(
+        [
+            "create",
+            "--name",
+            absolute_name,
+            "--game",
+            "emerald",
+            "--rom",
+            str(rom),
+            "--profiles-root",
+            str(profiles_root),
+        ]
+    ) == 2
+
+    assert not profiles_root.exists()
+    assert not (tmp_path / "outside-profile").exists()
+    assert "safe filename component" in capsys.readouterr().err
 
 
 def test_verify_reports_profile_facts_and_detects_source_hash_mismatch(

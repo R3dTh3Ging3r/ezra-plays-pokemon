@@ -12,13 +12,34 @@ from pokemon_farm.models import new_manifest
 from pokemon_farm.profiles import create_profile, load_manifest
 
 
+def _profile_root_for(profile_name: str, profiles_root: Path) -> Path:
+    """Return a profile-owned root for one safe profile-name component."""
+    if (
+        not profile_name.strip()
+        or profile_name in {".", ".."}
+        or "/" in profile_name
+        or "\\" in profile_name
+        or profile_name.endswith((".", " "))
+        or any(character in profile_name for character in '<>:"|?*')
+        or any(ord(character) < 32 for character in profile_name)
+    ):
+        raise ValueError("profile name must be one safe filename component")
+
+    resolved_profiles_root = profiles_root.resolve()
+    profile_root = (resolved_profiles_root / profile_name).resolve()
+    if not profile_root.is_relative_to(resolved_profiles_root):
+        raise ValueError("profile root must remain within profiles root")
+    return profile_root
+
+
 def _create(args: argparse.Namespace) -> int:
     """Create one profile from an explicitly supplied source ROM."""
+    profile_root = _profile_root_for(args.name, Path(args.profiles_root))
     manifest = new_manifest(
         args.name,
         args.game,
         Path(args.rom),
-        Path(args.profiles_root) / args.name,
+        profile_root,
     )
     created = create_profile(manifest)
     print(f"profile created: {created.profile_root}")
