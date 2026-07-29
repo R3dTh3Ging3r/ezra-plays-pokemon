@@ -19,6 +19,13 @@ _PATH_FIELDS = (
     "backups_dir",
     "logs_dir",
 )
+_PROFILE_OWNED_PATH_FIELDS = (
+    "working_rom",
+    "bot_profile_dir",
+    "runtime_state",
+    "backups_dir",
+    "logs_dir",
+)
 
 
 def create_profile(manifest: ProfileManifest) -> ProfileManifest:
@@ -53,6 +60,11 @@ def load_manifest(path: Path) -> ProfileManifest:
         field: (profile_root / data[field]).resolve()
         for field in _PATH_FIELDS
     }
+    if paths["profile_root"] != profile_root:
+        raise ValueError("manifest profile_root must equal the profile.json parent")
+    for field in _PROFILE_OWNED_PATH_FIELDS:
+        if not paths[field].is_relative_to(profile_root):
+            raise ValueError(f"manifest {field} must remain within profile_root")
     return ProfileManifest(
         profile_name=data["profile_name"],
         game_id=data["game_id"],

@@ -1,5 +1,8 @@
 """Tests for safe PokeBot Gen3 staging and synchronization."""
 
+import os
+import shutil
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -63,6 +66,45 @@ def test_stage_gen3_rom_requires_the_validated_upstream_layout(
     (tool_root / ".venv" / "Scripts" / "python.exe").unlink()
 
     with pytest.raises(FileNotFoundError, match="python.exe"):
+        stage_gen3_rom(created_manifest, tool_root)
+
+    assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
+
+
+def test_stage_gen3_rom_rejects_a_redirected_venv_ancestor(
+    created_manifest, tmp_path: Path
+) -> None:
+    """A redirected .venv cannot select an interpreter outside the tool root."""
+    tool_root = _make_tool_root(tmp_path)
+    shutil.rmtree(tool_root / ".venv")
+    outside_venv = tmp_path / "outside-venv"
+    (outside_venv / "Scripts").mkdir(parents=True)
+    (outside_venv / "Scripts" / "python.exe").write_bytes(b"")
+    redirected_venv = tool_root / ".venv"
+    try:
+        redirected_venv.symlink_to(outside_venv, target_is_directory=True)
+    except OSError as symlink_error:
+        if os.name != "nt":
+            pytest.skip(f"directory redirects are unavailable: {symlink_error}")
+        junction = subprocess.run(
+            [
+                "cmd.exe",
+                "/c",
+                "mklink",
+                "/J",
+                str(redirected_venv),
+                str(outside_venv),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if junction.returncode != 0:
+            pytest.skip(
+                "directory redirects are unavailable: "
+                f"{symlink_error}; {junction.stderr.strip()}"
+            )
+
+    with pytest.raises(ValueError, match="python.exe.*tool root"):
         stage_gen3_rom(created_manifest, tool_root)
 
     assert not (tool_root / "roms" / "emerald-level-grind.gba").exists()
@@ -160,6 +202,22 @@ def test_sync_gen3_profile_copies_back_without_deleting_local_files(
 
     assert created_manifest.runtime_state.read_bytes() == b"new-state"
     assert local_only.read_text(encoding="utf-8") == "keep"
+
+
+def test_sync_gen3_profile_rejects_a_non_gen3_manifest(
+    created_manifest, tmp_path: Path
+) -> None:
+    """Direct synchronization cannot import into a manifest for another generation."""
+    tool_root = _make_tool_root(tmp_path)
+    upstream_profile = tool_root / "profiles" / created_manifest.profile_name
+    upstream_profile.mkdir()
+    (upstream_profile / "current_state.ss1").write_bytes(b"gen2-unsafe")
+    gen2_manifest = replace(created_manifest, game_family=GameFamily.GEN2)
+
+    with pytest.raises(ValueError, match="Gen 3"):
+        sync_gen3_profile(gen2_manifest, tool_root)
+
+    assert not created_manifest.runtime_state.exists()
 
 
 def test_sync_gen3_profile_rejects_a_symlinked_local_destination(

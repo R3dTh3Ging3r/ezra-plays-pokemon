@@ -1,5 +1,6 @@
 """Tests for the profile-management command-line interface."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -253,6 +254,34 @@ def test_sync_gen3_command_copies_the_named_upstream_profile(
     assert exit_code == 0
     assert created_manifest.runtime_state.read_bytes() == b"synced"
     assert "profile synchronized" in capsys.readouterr().out
+
+
+def test_sync_gen3_command_rejects_a_representable_gen2_manifest(
+    created_manifest, tmp_path: Path, capsys
+) -> None:
+    """The CLI cannot sync an upstream Gen3 profile into a Gen2 manifest."""
+    tool_root = _make_tool_root(tmp_path)
+    upstream = tool_root / "profiles" / created_manifest.profile_name
+    upstream.mkdir()
+    (upstream / "current_state.ss1").write_bytes(b"gen2-unsafe")
+    manifest_path = created_manifest.profile_root / "profile.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["game_family"] = "gen2"
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    exit_code = main(
+        [
+            "sync-gen3",
+            "--profile",
+            str(manifest_path),
+            "--tool-root",
+            str(tool_root),
+        ]
+    )
+
+    assert exit_code == 2
+    assert not created_manifest.runtime_state.exists()
+    assert "Gen 3" in capsys.readouterr().err
 
 
 def test_launch_gen3_syncs_only_after_a_zero_exit(

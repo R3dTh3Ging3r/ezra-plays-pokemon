@@ -80,6 +80,36 @@ def test_load_manifest_round_trips_relative_input_paths(
     assert load_manifest(created.profile_root / "profile.json") == created
 
 
+def test_load_manifest_rejects_a_serialized_profile_root_other_than_its_parent(
+    created_manifest,
+) -> None:
+    """A manifest cannot replace the trusted directory containing profile.json."""
+    manifest_path = created_manifest.profile_root / "profile.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["profile_root"] = "../outside"
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="profile_root"):
+        load_manifest(manifest_path)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["working_rom", "bot_profile_dir", "runtime_state", "backups_dir", "logs_dir"],
+)
+def test_load_manifest_rejects_profile_owned_paths_outside_its_parent(
+    created_manifest, field: str
+) -> None:
+    """Serialized profile-owned paths cannot redirect later writes externally."""
+    manifest_path = created_manifest.profile_root / "profile.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data[field] = f"../../outside/{field}"
+    manifest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=field):
+        load_manifest(manifest_path)
+
+
 def test_create_profile_rejects_an_existing_profile_root(tmp_path: Path) -> None:
     """An existing root cannot be silently overwritten by a second creation."""
     source_rom = tmp_path / "emerald.gba"

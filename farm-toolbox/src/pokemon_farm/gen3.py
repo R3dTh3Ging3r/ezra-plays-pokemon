@@ -53,12 +53,27 @@ def _required_file(path: Path, label: str) -> Path:
     return path
 
 
+def _contained_required_file(root: Path, relative: Path, label: str) -> Path:
+    """Return a fixed tool file whose ancestors cannot redirect externally."""
+    candidate = root / relative
+    ancestor = root
+    for part in relative.parts[:-1]:
+        ancestor /= part
+        if _is_redirect(ancestor):
+            raise ValueError(f"{label} must remain within the PokeBot tool root")
+    _required_file(candidate, label)
+    if not candidate.resolve().is_relative_to(root):
+        raise ValueError(f"{label} must remain within the PokeBot tool root")
+    return candidate
+
+
 def _validate_tool_install(tool_root: Path) -> tuple[Path, Path]:
     """Validate the fixed upstream program, interpreter, and ROM directory."""
     root = Path(tool_root).resolve()
-    _required_file(root / "pokebot.py", "PokeBot pokebot.py")
-    _required_file(
-        root / ".venv" / "Scripts" / "python.exe",
+    _contained_required_file(root, Path("pokebot.py"), "PokeBot pokebot.py")
+    _contained_required_file(
+        root,
+        Path(".venv") / "Scripts" / "python.exe",
         "PokeBot .venv Scripts python.exe",
     )
     roms_dir = _contained_directory(root, Path("roms"), "PokeBot roms")
@@ -190,6 +205,8 @@ def stage_gen3_profile(manifest: ProfileManifest, tool_root: Path) -> Path:
 
 def sync_gen3_profile(manifest: ProfileManifest, tool_root: Path) -> None:
     """Copy upstream PokeBot profile changes back without deleting local files."""
+    if manifest.game_family is not GameFamily.GEN3:
+        raise ValueError("only a Gen 3 manifest can be synchronized with PokeBot Gen3")
     upstream_profile = _upstream_profile(manifest, tool_root)
     if not upstream_profile.is_dir():
         raise FileNotFoundError(f"upstream PokeBot profile is absent: {upstream_profile}")
