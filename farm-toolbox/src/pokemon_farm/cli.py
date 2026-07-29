@@ -1,15 +1,26 @@
 """Command-line management for isolated Pokemon farming profiles."""
 
 import argparse
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Sequence
 
 from pokemon_farm.backups import backup_runtime_state, restore_backup
+from pokemon_farm.gen3 import (
+    build_gen3_command,
+    preflight_gen3,
+    stage_gen3_profile,
+    stage_gen3_rom,
+    sync_gen3_profile,
+)
 from pokemon_farm.hashing import sha256_file
 from pokemon_farm.models import new_manifest
 from pokemon_farm.profiles import create_profile, load_manifest
+
+
+_run_process = subprocess.run
 
 
 def _profile_root_for(profile_name: str, profiles_root: Path) -> Path:
@@ -88,6 +99,73 @@ def _restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _provision_gen3(args: argparse.Namespace) -> int:
+    """Stage a ROM and open native PokeBot profile provisioning."""
+    manifest = load_manifest(Path(args.profile))
+    tool_root = Path(args.tool_root).resolve()
+    staged_rom = stage_gen3_rom(manifest, tool_root)
+    print(f"ROM staged: {staged_rom}")
+
+    result = _run_process(
+        build_gen3_command(tool_root, None, None),
+        cwd=tool_root,
+    )
+    upstream_profile = tool_root / "profiles" / manifest.profile_name
+    if upstream_profile.is_dir():
+        sync_gen3_profile(manifest, tool_root)
+        print(f"profile synchronized: {manifest.bot_profile_dir}")
+    else:
+        print(
+            "manual PokeBot profile creation is still required at: "
+            f"{upstream_profile}"
+        )
+    return result.returncode
+
+
+def _sync_gen3(args: argparse.Namespace) -> int:
+    """Copy the selected upstream PokeBot profile back into local ownership."""
+    manifest = load_manifest(Path(args.profile))
+    tool_root = Path(args.tool_root).resolve()
+    sync_gen3_profile(manifest, tool_root)
+    print(f"profile synchronized: {manifest.bot_profile_dir}")
+    return 0
+
+
+def _launch_gen3(args: argparse.Namespace) -> int:
+    """Launch a validated profile and sync it after a clean exit."""
+    manifest = load_manifest(Path(args.profile))
+    tool_root = Path(args.tool_root).resolve()
+    preflight_gen3(manifest, tool_root)
+    staged_rom = stage_gen3_profile(manifest, tool_root)
+    print(f"ROM staged: {staged_rom}")
+
+    result = _run_process(
+        build_gen3_command(tool_root, manifest.profile_name, args.mode),
+        cwd=tool_root,
+    )
+    upstream_profile = tool_root / "profiles" / manifest.profile_name
+    if result.returncode == 0:
+        sync_gen3_profile(manifest, tool_root)
+        print(f"profile synchronized: {manifest.bot_profile_dir}")
+    else:
+        print(
+            "PokeBot exited nonzero; recoverable upstream profile retained at: "
+            f"{upstream_profile}",
+            file=sys.stderr,
+        )
+    return result.returncode
+
+
+def _add_gen3_profile_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add explicit profile and PokeBot checkout arguments."""
+    parser.add_argument("--profile", required=True, help="path to profile.json")
+    parser.add_argument(
+        "--tool-root",
+        required=True,
+        help="path to the isolated PokeBot Gen3 checkout",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the parser used by the console script and tests."""
     parser = argparse.ArgumentParser(prog="pokemon-farm")
@@ -119,6 +197,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="path to a backup inside this profile's backups directory",
     )
     restore.set_defaults(handler=_restore)
+
+    provision_gen3 = commands.add_parser(
+        "provision-gen3",
+        help="stage a ROM and open one-time native PokeBot provisioning",
+    )
+    _add_gen3_profile_arguments(provision_gen3)
+    provision_gen3.set_defaults(handler=_provision_gen3)
+
+    sync_gen3 = commands.add_parser(
+        "sync-gen3",
+        help="copy an upstream PokeBot profile back into local ownership",
+    )
+    _add_gen3_profile_arguments(sync_gen3)
+    sync_gen3.set_defaults(handler=_sync_gen3)
+
+    launch_gen3 = commands.add_parser(
+        "launch-gen3",
+        help="launch a validated native PokeBot profile",
+    )
+    _add_gen3_profile_arguments(launch_gen3)
+    launch_gen3.add_argument("--mode", required=True, help="native PokeBot mode")
+    launch_gen3.set_defaults(handler=_launch_gen3)
     return parser
 
 
