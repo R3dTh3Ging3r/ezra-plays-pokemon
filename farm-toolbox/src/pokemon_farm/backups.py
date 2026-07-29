@@ -49,11 +49,13 @@ def backup_runtime_state(
     _validate_label(label)
 
     timestamp = clock().astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
-    backup = manifest.backups_dir / f"{timestamp}-{label}.ss1"
-    if not backup.resolve().is_relative_to(manifest.backups_dir.resolve()):
+    backups_dir = manifest.backups_dir.resolve()
+    if not backups_dir.is_relative_to(manifest.profile_root.resolve()):
+        raise ValueError("backups directory must remain within the profile")
+    backup = (backups_dir / f"{timestamp}-{label}.ss1").resolve()
+    if not backup.is_relative_to(backups_dir):
         raise ValueError("backup destination must be inside the profile backups directory")
-    if backup.exists():
-        raise FileExistsError(f"backup already exists: {backup}")
+    backup.touch(exist_ok=False)
     shutil.copy2(manifest.runtime_state, backup)
     return backup
 

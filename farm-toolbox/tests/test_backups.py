@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import pokemon_farm.backups as backups_module
 from pokemon_farm.backups import backup_runtime_state, restore_backup
 
 
@@ -116,3 +117,45 @@ def test_restore_rejects_a_runtime_destination_outside_the_profile(
         restore_backup(unsafe_manifest, backup)
 
     assert not outside_runtime_state.exists()
+
+
+def test_backup_rejects_a_backups_directory_outside_the_profile(
+    created_manifest, tmp_path: Path
+) -> None:
+    """A crafted manifest cannot cause a runtime-state copy outside its profile."""
+    external_backups = tmp_path / "external-backups"
+    external_backups.mkdir()
+    unsafe_manifest = replace(created_manifest, backups_dir=external_backups)
+    created_manifest.runtime_state.write_bytes(b"state")
+
+    with pytest.raises(ValueError, match="backups directory"):
+        backup_runtime_state(
+            unsafe_manifest, lambda: datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+        )
+
+    assert not any(external_backups.iterdir())
+
+
+def test_backup_reserves_a_same_second_name_before_copying(
+    created_manifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-entrant backup cannot overwrite a name reserved by the first copy."""
+    clock = lambda: datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+    created_manifest.runtime_state.write_bytes(b"first")
+    real_copy2 = backups_module.shutil.copy2
+    reentrant_attempted = False
+
+    def copy2_with_reentrant_backup(source: Path, destination: Path) -> Path:
+        nonlocal reentrant_attempted
+        if not reentrant_attempted:
+            reentrant_attempted = True
+            with pytest.raises(FileExistsError):
+                backup_runtime_state(created_manifest, clock)
+        return real_copy2(source, destination)
+
+    monkeypatch.setattr(backups_module.shutil, "copy2", copy2_with_reentrant_backup)
+
+    backup = backup_runtime_state(created_manifest, clock)
+
+    assert reentrant_attempted
+    assert backup.read_bytes() == b"first"
