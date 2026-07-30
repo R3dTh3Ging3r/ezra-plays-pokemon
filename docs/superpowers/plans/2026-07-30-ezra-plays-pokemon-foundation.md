@@ -115,11 +115,15 @@ Expected: all tests pass.
 Run:
 
     git ls-files | Select-String -Pattern '(Pokemon Roms|farm-toolbox/profiles|farm-toolbox/tools|\.(gba|gbc|gb|sav|ss1|state)$)'
-    git branch -M main
-    gh repo create R3dTh3Ging3r/ezra-plays-pokemon --public --source=. --remote=origin --push --description "Local, memory-assisted Pokémon automation: story progression, safe farming, and an auditable living-dex roadmap."
+    # Run this one branch rename from the primary worktree, which currently owns master.
+    git branch -m master main
+    # Return to this feature worktree for the remote creation and pushes.
+    gh repo create R3dTh3Ging3r/ezra-plays-pokemon --public --source=. --remote=origin --description "Local, memory-assisted Pokémon automation: story progression, safe farming, and an auditable living-dex roadmap."
+    git push origin HEAD:main
+    git push -u origin HEAD
     gh repo edit R3dTh3Ging3r/ezra-plays-pokemon --add-topic pokemon --add-topic automation --add-topic emulator --add-topic local-ai --add-topic firered
 
-Expected: the scan emits no prohibited files, origin points at the public repo, main is pushed, and the description plus five topics appear in settings.
+Expected: the scan emits no prohibited files; public main contains the reviewed documentation; the current codex feature branch is also pushed; and the description plus five topics appear in settings.
 
 ## Task 2: Define automation contracts and profile-contained journals
 
@@ -264,7 +268,7 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: ProfileManifest, a user-selected tool root, the contained-directory helpers in gen3.py, and InputBlock bounds.
-- Produces: BridgePaths.for_manifest(manifest), install_pokebot_bridge(manifest, tool_root) -> Path, and the profile-owned command.json, observation.json, and bridge-status.json files.
+- Produces: BridgePaths.for_manifest(manifest), BridgePaths.for_live_gen3(manifest, tool_root), install_pokebot_bridge(manifest, tool_root) -> Path, and the profile-owned command.json, observation.json, and bridge-status.json files.
 
 - [ ] **Step 1: Write failing bridge tests**
 
@@ -289,7 +293,7 @@ Expected: FAIL because BridgePaths and install_pokebot_bridge are absent.
 
 - [ ] **Step 3: Implement the file bridge and installer**
 
-BridgePaths.for_manifest() resolves exactly manifest.bot_profile_dir / "autopilot", rejects a redirect, and requires containment within the profile. This location is deliberately inside the synchronised native PokeBot profile, so normal stage and sync operations carry bridge data without a separate copy path. It validates command.json schema: sequence is int, button is a known Button value, frames is 1 through 120, and label is nonblank.
+BridgePaths.for_manifest() resolves exactly manifest.bot_profile_dir / "autopilot", rejects a redirect, and requires containment within the profile. This location is deliberately inside the synchronised native PokeBot profile, so normal stage and sync operations carry bridge data without a separate copy path. BridgePaths.for_live_gen3(manifest, tool_root) resolves that same autopilot directory inside the validated active tool_root/profiles/profile_name directory and rejects redirects or escapes. The live path is the only path used while PokeBot is running; the local path is imported on a clean sync. Both validate command.json schema: sequence is int, button is a known Button value, frames is 1 through 120, and label is nonblank.
 
 The ezra_bridge.py plugin uses the upstream PokeBot plugin API to add an Ezra Bridge BotMode. It reads only a validated command JSON, presses the requested button using context.emulator.press_button(), yields exactly the requested number of frames, and resets held buttons. It writes observation.json atomically with command sequence, PokeBot frame count, normalized game phase, plus raw map/player/party values available through public PokeBot modules. A malformed, stale, or unsupported command resets inputs and writes a bridge-status.json error instead of pressing anything. It does not write emulator memory, patch saves, access the network, or import game files.
 
@@ -322,9 +326,9 @@ Expected: PASS.
 - [ ] **Step 1: Write failing command tests**
 
     assert main(["install-bridge", "--profile", str(manifest_path), "--tool-root", str(tool_root)]) == 0
-    assert main(["story-status", "--profile", str(manifest_path)]) == 0
+    assert main(["story-status", "--profile", str(manifest_path), "--tool-root", str(tool_root)]) == 0
     assert "bridge observation: absent" in capsys.readouterr().out
-    assert main(["story-step", "--profile", str(manifest_path)]) == 2
+    assert main(["story-step", "--profile", str(manifest_path), "--tool-root", str(tool_root)]) == 2
     assert "bridge observation is absent" in capsys.readouterr().err
 
 Also assert story-status reports paused plus the final reason when the journal has a pause record, and malformed observation.json returns code 2 without changing command.json.
@@ -337,9 +341,9 @@ Expected: FAIL because the commands are absent.
 
 - [ ] **Step 3: Implement explicit fail-closed commands**
 
-install-bridge calls install_pokebot_bridge and prints the installed path. story-status loads the manifest, validates bridge paths, reports which bridge files are present, and prints only final journal kind/reason. story-step requires a valid existing observation, validates its sequence and normalized state, then atomically writes one command file using explicit --button, --frames, and --label parameters. It records a journal event before success. All validation errors return through existing main exception handling with exit code 2 and leave prior bridge files unchanged.
+install-bridge calls install_pokebot_bridge and prints the installed path. story-status and story-step both require --tool-root and operate through BridgePaths.for_live_gen3(), so they communicate with the active PokeBot profile rather than a stale local copy. story-status reports which bridge files are present and prints only final journal kind/reason. story-step requires a valid existing observation, validates its sequence and normalized state, then atomically writes one command file using explicit --button, --frames, and --label parameters. It records a journal event before success. All validation errors return through existing main exception handling with exit code 2 and leave prior bridge files unchanged.
 
-Document this proof in farm-toolbox/README.md: provision a legal FireRed profile; install the bridge; launch Ezra Bridge only after the user confirms at launch time; run story-status; issue one story-step; observe one normal input; close cleanly; sync; verify; and back up. State that the first gym objective implementation starts in a separate Phase 2 plan after this evidence passes.
+Document this proof in farm-toolbox/README.md: provision a legal FireRed profile; install the bridge; launch Ezra Bridge only after the user confirms at launch time in Terminal A; while it remains running, use Terminal B to run story-status and issue one story-step with the same --tool-root; observe one normal input; close cleanly; sync; verify; and back up. State that the first gym objective implementation starts in a separate Phase 2 plan after this evidence passes.
 
 - [ ] **Step 4: Run focused tests, full verification, and commit**
 
