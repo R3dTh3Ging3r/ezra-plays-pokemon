@@ -8,3 +8,10 @@ farm-toolbox/dist/
 farm-toolbox/src/*.egg-info/
 __pycache__/
 .pytest_cache/
+.env
+*.sav
+*.ss1
+*.state
+*.log
+farm-toolbox/integrations/pokebot/__pycache__/
+farm-toolbox/.coverage

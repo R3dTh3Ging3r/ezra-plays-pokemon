@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible toolbox issue without including game assets.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: input
+    id: toolbox_version
+    attributes:
+      label: Toolbox version or commit
+      description: The installed version or source commit.
+    validations:
+      required: true
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system
+    validations:
+      required: true
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+    validations:
+      required: true
+  - type: input
+    id: pokebot_emulator_version
+    attributes:
+      label: PokeBot and emulator version
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized_logs
+    attributes:
+      label: Sanitized logs
+      description: Remove game assets, credentials, and personal paths.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: no_game_assets
+    attributes:
+      label: Attachment safety
+      options:
+        - label: I confirm that no ROM, save, state, or copyrighted screenshot is attached.
+          required: true

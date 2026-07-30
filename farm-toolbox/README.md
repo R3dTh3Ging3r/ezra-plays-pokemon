@@ -1,5 +1,7 @@
 # Pokemon Farm Toolbox
 
+Pokemon Farm Toolbox is the local FireRed automation foundation. Its existing Gen 3 safe-profile workflow remains available for developer use.
+
 Pokemon Farm Toolbox creates isolated Gen 3 farming profiles. The source ROM is
 read only: each profile receives its own working copy and profile-local runtime
 state.
