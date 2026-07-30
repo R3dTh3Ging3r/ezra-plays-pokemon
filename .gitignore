@@ -1,1 +1,10 @@
 .worktrees/
+.venv/
+Pokemon Roms/
+farm-toolbox/profiles/
+farm-toolbox/tools/
+farm-toolbox/build/
+farm-toolbox/dist/
+farm-toolbox/src/*.egg-info/
+__pycache__/
+.pytest_cache/

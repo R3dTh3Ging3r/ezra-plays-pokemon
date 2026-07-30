@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pokemon-farm-toolbox"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[project.scripts]
+pokemon-farm = "pokemon_farm.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
