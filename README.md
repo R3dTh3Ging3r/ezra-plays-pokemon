@@ -1,8 +1,8 @@
-# Ezra Plays PokÃƒÂ©mon
+# Ezra Plays Pokémon
 
 ## What it is
 
-Ezra Plays PokÃƒÂ©mon is a local, developer-first automation foundation for responsibly progressing through PokÃƒÂ©mon games and running long-lived farming jobs. Version 0.1 is a FireRed-only foundation built around auditable, ordinary controller input.
+Ezra Plays Pokémon is a local, developer-first automation foundation for responsibly progressing through Pokémon games and running long-lived farming jobs. Version 0.1 is a FireRed-only foundation built around auditable, ordinary controller input.
 
 ## Status
 

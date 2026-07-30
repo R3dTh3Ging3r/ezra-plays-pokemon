@@ -9,6 +9,9 @@ farm-toolbox/src/*.egg-info/
 __pycache__/
 .pytest_cache/
 .env
+*.gba
+*.gbc
+*.gb
 *.sav
 *.ss1
 *.state
